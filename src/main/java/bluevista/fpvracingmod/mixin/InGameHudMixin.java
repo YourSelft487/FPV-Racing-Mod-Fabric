@@ -1,6 +1,9 @@
 package bluevista.fpvracingmod.mixin;
 
 import bluevista.fpvracingmod.client.ClientTick;
+import bluevista.fpvracingmod.client.renderers.StaticRenderer;
+import bluevista.fpvracingmod.server.entities.DroneEntity;
+import bluevista.fpvracingmod.server.items.GogglesItem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.util.math.MatrixStack;
@@ -29,6 +32,11 @@ public class InGameHudMixin {
             )
     )
     public void render(MatrixStack matrices, float tickDelta, CallbackInfo info) {
+//        if (client.options.getPerspective().isFirstPerson() && client.player.inventory.getArmorStack(3).getItem() instanceof GogglesItem) {
+//            if (GogglesItem.isOn(client.player) && !(client.getCameraEntity() instanceof DroneEntity)) {
+//                StaticRenderer.render(10, 20, 10, 20, tickDelta);
+//            }
+//        }
     }
 
     /**
