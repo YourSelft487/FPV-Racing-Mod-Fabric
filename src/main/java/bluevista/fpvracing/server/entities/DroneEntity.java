@@ -2,7 +2,6 @@ package bluevista.fpvracing.server.entities;
 
 import bluevista.fpvracing.client.ClientInitializer;
 import bluevista.fpvracing.client.ClientTick;
-import bluevista.fpvracing.client.input.AxisValues;
 import bluevista.fpvracing.client.input.InputTick;
 import bluevista.fpvracing.client.math.VectorHelper;
 import bluevista.fpvracing.config.Config;
@@ -38,6 +37,8 @@ import net.minecraft.network.Packet;
 import net.minecraft.network.packet.s2c.play.EntitySpawnS2CPacket;
 import net.minecraft.predicate.entity.EntityPredicates;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.LiteralText;
+import net.minecraft.text.Text;
 import net.minecraft.text.TranslatableText;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -62,6 +63,9 @@ public class DroneEntity extends Entity {
 	/* Misc */
 	private final HashMap<PlayerEntity, Vec3d> playerStartPos;
 	private float damageCoefficient;
+	private boolean godMode;
+	private int playerID;
+	private int bindID;
 
 	/* Camera Settings */
 	private int cameraAngle;
@@ -70,7 +74,6 @@ public class DroneEntity extends Entity {
 	private int channel;
 
 	/* Controller Settings */
-	private final AxisValues axisValues;
 	private float rate;
 	private float superRate;
 	private float expo;
@@ -86,10 +89,7 @@ public class DroneEntity extends Entity {
 	/* Misc Physics Info */
 	private Quat4f prevOrientation;
 	private Quat4f netOrientation;
-	private int playerID;
-	private int bindID;
 	private RigidBody body;
-	private boolean godMode;
 
 	/**
 	 * The constructor called by the Fabric API in {@link ServerInitializer}. Invokes the main constructor.
@@ -112,7 +112,6 @@ public class DroneEntity extends Entity {
 
 		this.prevOrientation = new Quat4f(0, 1, 0, 0);
 		this.netOrientation = new Quat4f(0, 1, 0, 0);
-		this.axisValues = new AxisValues();
 		this.playerStartPos = new HashMap();
 
 		this.ignoreCameraFrustum = true;
@@ -122,6 +121,13 @@ public class DroneEntity extends Entity {
 
 		this.yaw = yaw;
 		this.prevYaw = yaw;
+
+		Entity entity = world.getEntityById(playerID);
+		if (entity instanceof PlayerEntity) {
+			PlayerEntity player = (PlayerEntity) entity;
+			this.setCustomName(new LiteralText(player.getGameProfile().getName()));
+			this.setCustomNameVisible(true);
+		}
 
 		this.updatePositionAndAngles(pos.x, pos.y, pos.z, yaw, 0);
 		this.createRigidBody();
@@ -176,6 +182,7 @@ public class DroneEntity extends Entity {
 					this.world.getBlockState(this.getBlockPos()).getBlock() == Blocks.CAMPFIRE ||
 					this.world.getBlockState(this.getBlockPos()).getBlock() == Blocks.SOUL_CAMPFIRE ||
 					this.world.getBlockState(this.getBlockPos()).getBlock() == Blocks.SOUL_FIRE ||
+					this.world.getBlockState(this.getBlockPos().down()).getBlock() == Blocks.MAGMA_BLOCK ||
 					this.world.getBlockState(this.getBlockPos()).getBlock() == Blocks.FIRE)) {
 				this.kill();
 			}
@@ -188,16 +195,12 @@ public class DroneEntity extends Entity {
 	 */
 	@Environment(EnvType.CLIENT)
 	public void stepPhysics(float d) {
-		if (isActive()) {
+		if (isActive() && TransmitterItem.isBoundTransmitter(ClientInitializer.client.player.getMainHandStack(), this)) {
 //			if (isKillable()) calculateCrashConditions();
 
-			if (TransmitterItem.isBoundTransmitter(ClientInitializer.client.player.getMainHandStack(), this)) {
-				this.axisValues.set(InputTick.axisValues);
-			}
-
-			float deltaX = (float) BetaflightHelper.calculateRates(axisValues.currX, rate, expo, superRate, d);
-			float deltaY = (float) BetaflightHelper.calculateRates(axisValues.currY, rate, expo, superRate, d);
-			float deltaZ = (float) BetaflightHelper.calculateRates(axisValues.currZ, rate, expo, superRate, d);
+			float deltaX = (float) BetaflightHelper.calculateRates(InputTick.axisValues.currX, rate, expo, superRate, d);
+			float deltaY = (float) BetaflightHelper.calculateRates(InputTick.axisValues.currY, rate, expo, superRate, d);
+			float deltaZ = (float) BetaflightHelper.calculateRates(InputTick.axisValues.currZ, rate, expo, superRate, d);
 
 			rotateX(deltaX);
 			rotateY(deltaY);
@@ -451,7 +454,7 @@ public class DroneEntity extends Entity {
 
 	/**
 	 * If the {@link PlayerEntity} is holding a {@link TransmitterItem} when they right
-	 * click on the {@link DroneEntity}, bind it using the drone's UUID.
+	 * click on the {@link DroneEntity}, bind it using a new random ID.
 	 * @param player the {@link PlayerEntity} who is interacting
 	 * @param hand the hand of the {@link PlayerEntity}
 	 * @return
@@ -465,8 +468,10 @@ public class DroneEntity extends Entity {
 				bindID = rand.nextInt();
 				playerID = player.getEntityId();
 
+				setCustomName(new LiteralText(player.getGameProfile().getName()));
+
 				TransmitterItem.setTagValue(player.getMainHandStack(), Config.BIND, bindID);
-				player.sendMessage(new TranslatableText("Transmitter bound"), false);
+				player.sendMessage(new LiteralText("Transmitter bound"), false);
 			}
 		} else if (!InputTick.controllerExists()) {
 			player.sendMessage(new TranslatableText("Controller not found"), false);
@@ -546,7 +551,7 @@ public class DroneEntity extends Entity {
 	 * @return the throttle position
 	 */
 	public float getThrottle() {
-		return this.axisValues.currT;
+		return InputTick.axisValues.currT;
 	}
 
 	/**
@@ -690,7 +695,7 @@ public class DroneEntity extends Entity {
 	 */
 	protected Vector3f getThrustForce() {
 		Vector3f thrust = VectorHelper.vec3dToVector3f(getThrustVector().multiply(calculateThrustCurve()).multiply(this.thrust));
-		Vector3f yaw = VectorHelper.vec3dToVector3f(getThrustVector().multiply(Math.abs(axisValues.currY * 15)));
+		Vector3f yaw = VectorHelper.vec3dToVector3f(getThrustVector().multiply(Math.abs(BetaflightHelper.calculateRates(InputTick.axisValues.currY, rate, expo, superRate, 0.01f))));
 
 		Vector3f out = new Vector3f();
 		out.add(thrust, yaw);
@@ -849,9 +854,9 @@ public class DroneEntity extends Entity {
 		} else {
 			float it = 1 - getThrottle();
 
-			if (Math.abs(axisValues.currX) * it > t ||
-					Math.abs(axisValues.currY) * it > t ||
-					Math.abs(axisValues.currZ) * it > t) {
+			if (Math.abs(InputTick.axisValues.currX) * it > t ||
+					Math.abs(InputTick.axisValues.currY) * it > t ||
+					Math.abs(InputTick.axisValues.currZ) * it > t) {
 				getRigidBody().setAngularVelocity(new Vector3f(0, 0, 0));
 			}
 		}
