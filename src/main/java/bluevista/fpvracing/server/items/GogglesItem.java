@@ -96,7 +96,7 @@ public class GogglesItem extends ArmorItem {
 		return player.inventory.armor.get(3).getItem() instanceof GogglesItem;
 	}
 
-	public static boolean isOnSameChannel(DroneEntity drone, PlayerEntity player) {
+	public static boolean isOnSameFrequency(DroneEntity drone, PlayerEntity player) {
 		if (GogglesItem.isWearingGoggles(player)) {
 			ItemStack hat = player.inventory.armor.get(3);
 

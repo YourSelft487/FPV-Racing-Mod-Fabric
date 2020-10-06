@@ -59,7 +59,7 @@ public class ServerTick {
             if (player.getCameraEntity() instanceof DroneEntity && (                            // currently viewing through the goggles AND one of the following:
                 !GogglesItem.isWearingGoggles(player) ||                                        // not wearing goggles on head
                 !GogglesItem.isOn(player) ||                                                    // goggles are powered off on head
-                !GogglesItem.isOnSameChannel((DroneEntity) player.getCameraEntity(), player) || // suddenly on wrong channel
+                !GogglesItem.isOnSameFrequency((DroneEntity) player.getCameraEntity(), player) || // suddenly on wrong channel
                 player.getCameraEntity().removed))                                              // camera entity is dead
             {
                     resetView(player);
