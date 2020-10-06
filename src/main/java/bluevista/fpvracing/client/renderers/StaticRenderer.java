@@ -3,198 +3,153 @@ package bluevista.fpvracing.client.renderers;
 import bluevista.fpvracing.client.ClientInitializer;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.datafixers.util.Pair;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.*;
 import net.minecraft.client.util.GlAllocationUtils;
 import org.lwjgl.system.MemoryUtil;
-import sun.java2d.pipe.RenderBuffer;
 
 import java.nio.ByteBuffer;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class StaticRenderer {
+public class StaticRenderer extends Thread {
 
-    private static BufferBuilder prevBufferBuilder;
     private final static MinecraftClient client = ClientInitializer.client;
-//    private static ByteBuffer prevByteBuffer = ByteBuffer.allocate(client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16);
-    private static ByteBuffer prevByteBuffer;
     private static float prevTickDelta;
-    private static final float TICK_TIME = 1/20f;
-    private static int count;
-    private static boolean redrawPrevFrame;
 
-    public static void render(int minRowSpacing, int maxRowSpacing, int minColumnSpacing, int maxColumnSpacing, float tickDelta) {
+    private static StaticBufferStuffer staticBufferStuffer = new StaticBufferStuffer();
 
-        boolean b;
-        int width = 0,
-                color = 0,
-                rowCounter = 0,
-                rowSpacing = 0,
-                columnSpacing = 0,
-                offset = 0;
+    private static ByteBuffer prevByteBuffer;
+    private static int prevCount;
 
-        int[] lastRowColors = new int[client.getWindow().getFramebufferWidth()],
-                lastRowColumnSpacing = new int[client.getWindow().getFramebufferWidth()];
+    private volatile static ByteBuffer nextByteBuffer;
+    private volatile static AtomicInteger nextCount = new AtomicInteger();
 
-        // tickDelta math
-        if (tickDelta < prevTickDelta) {
-            redrawPrevFrame = false;
-//            System.out.println("YO");
-//            prevByteBuffer = prevByteBuffer.clear();
-//            prevByteBuffer = null;
-//            prevBufferBuilder = null;
+    private static class StaticBufferStuffer extends Thread {
+
+        private static ByteBuffer buffer;
+
+        private static int minRowSpacing,
+                           maxRowSpacing,
+                           minColumnSpacing,
+                           maxColumnSpacing;
+
+        StaticBufferStuffer() {
+            super();
         }
 
-//        if (runningDelta - prevDelta >= TICK_TIME) {
-//            runningDelta = runningDelta - prevDelta;
-//            prevDelta = System.currentTimeMillis() / 1000f;
-//            redrawPrevFrame = false;
-////            prevByteBuffer = prevByteBuffer.clear();
-////            prevByteBuffer = null;
-////            prevBufferBuilder = null;
-//        }
+        StaticBufferStuffer(ByteBuffer buffer, int minRowSpacing, int maxRowSpacing, int minColumnSpacing, int maxColumnSpacing) {
+            super();
+            StaticBufferStuffer.buffer = buffer;
 
-        // Variable prep
-//        if (prevBufferBuilder != null) {
-//            prevBufferBuilder.end();
-//            BufferRenderer.draw(prevBufferBuilder);
-//            return;
-//        }
-
-        prevTickDelta = tickDelta;
-
-
-        if (redrawPrevFrame) {
-            prevBufferBuilder = new BufferBuilder(2097152);
-            prevBufferBuilder.begin(0, VertexFormats.POSITION_COLOR);
-
-//            prevByteBuffer.rewind();
-//            for (int height = 0; height < client.getWindow().getFramebufferHeight(); ++height) {
-//                for (int width = 0; width < client.getWindow().getFramebufferWidth(); ++width) {
-//                    prevBufferBuilder.vertex(width, height, -90.0d).color(prevByteBuffer[12 + offset], prevByteBuffer[13 + offset], prevByteBuffer[14 + offset], 255);
-//                }
-//            }
-
-            for (int length = 0; length < client.getWindow().getFramebufferWidth() * client.getWindow().getFramebufferHeight(); ++length) {
-                prevBufferBuilder.vertex(prevByteBuffer.get(offset), prevByteBuffer.get(4 + offset), -90.0d).color(prevByteBuffer.get(12 + offset), prevByteBuffer.get(13 + offset), prevByteBuffer.get(14 + offset), 255);
-                offset += 16;
-            }
-
-            prevBufferBuilder.end();
-            BufferRenderer.draw(prevBufferBuilder);
-//            Pair<BufferBuilder.DrawArrayParameters, ByteBuffer> pair = prevBufferBuilder.popData();
-//            BufferBuilder.DrawArrayParameters drawArrayParameters = (BufferBuilder.DrawArrayParameters)pair.getFirst();
-//            draw((ByteBuffer)pair.getSecond(), drawArrayParameters.getMode(), drawArrayParameters.getVertexFormat(), drawArrayParameters.getCount());
-            return;
-//            BufferRenderer.draw(prevByteBuffer, 0, VertexFormats.POSITION_COLOR, count);
-//            draw(prevByteBuffer, 0, VertexFormats.POSITION_COLOR, count);
-//            draw(prevBufferBuilder.popData().getSecond(), 0, VertexFormats.POSITION_COLOR, count);
-//            return;
+            StaticBufferStuffer.minRowSpacing = minRowSpacing;
+            StaticBufferStuffer.maxRowSpacing = maxRowSpacing;
+            StaticBufferStuffer.minColumnSpacing = minColumnSpacing;
+            StaticBufferStuffer.maxColumnSpacing = maxColumnSpacing;
         }
 
-        Random random = new Random();
-        BufferBuilder bufferBuilder = new BufferBuilder(2097152);
-        prevBufferBuilder = new BufferBuilder(2097152);
-//        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16);
-//        ByteBuffer byteBuffer = GlAllocationUtils.allocateByteBuffer(client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16);
+        @Override
+        public void run() {
+            super.run();
 
+            Random random = new Random();
 
-        // Rendering prep
-        RenderSystem.disableDepthTest();
-        RenderSystem.depthMask(false);
-        RenderSystem.defaultBlendFunc();
-        RenderSystem.color4f(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.disableAlphaTest();
-        RenderSystem.matrixMode(5889);
-        RenderSystem.loadIdentity();
-        RenderSystem.ortho(0.0D, client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0.0D, 1000.0D, 3000.0D);
-        RenderSystem.matrixMode(5888);
+            boolean b;
 
-        // Rendering loop
-        bufferBuilder.begin(0, VertexFormats.POSITION_COLOR);
-        prevBufferBuilder.begin(0, VertexFormats.POSITION_COLOR);
-        count = 0;
-        for (int height = 0; height < client.getWindow().getFramebufferHeight(); ++height) {
-            if (rowCounter == 0 || rowCounter >= rowSpacing) {
-                rowCounter = 0;
-                rowSpacing = random.nextInt(maxRowSpacing - minRowSpacing + 1) + minRowSpacing;
+            int rowCounter = 0;
+            int rowSpacing = 0;
+            int currentWidth = 0;
+            int color = 0;
+            int columnSpacing = 0;
+            int elementOffset = 0;
 
-                lastRowColors = new int[client.getWindow().getFramebufferWidth()];
-                lastRowColumnSpacing = new int[client.getWindow().getFramebufferWidth()];
-            }
+            int frameBufferWidth = client.getWindow().getFramebufferWidth();
+            int frameBufferHeight = client.getWindow().getFramebufferHeight();
 
-            width = 0;
-            while (width < client.getWindow().getFramebufferWidth()) {
-                if (rowCounter == 0) {
-                    b = random.nextBoolean();
-                    color = b ? 255 : 0;
+            int[] lastRowColors = new int[frameBufferWidth],
+                  lastRowColumnSpacing = new int[frameBufferWidth];
 
-                    if (maxColumnSpacing <= client.getWindow().getFramebufferWidth() - width) {
-                        columnSpacing = random.nextInt(maxColumnSpacing - minColumnSpacing + 1) + minColumnSpacing;
-                    } else if (maxColumnSpacing >= client.getWindow().getFramebufferWidth() - width &&
-                               minColumnSpacing <= client.getWindow().getFramebufferWidth() - width) {
-                        columnSpacing = random.nextInt(client.getWindow().getFramebufferWidth() - width - minColumnSpacing + 1) + minColumnSpacing;
+            nextCount.set(0);
+            buffer.clear();
+            for (int currentHeight = 0; currentHeight < frameBufferHeight; ++currentHeight) {
+                if (rowCounter == 0 || rowCounter >= rowSpacing) {
+                    rowCounter = 0;
+                    rowSpacing = random.nextInt(maxRowSpacing - minRowSpacing + 1) + minRowSpacing;
+
+                    lastRowColors = new int[frameBufferWidth];
+                    lastRowColumnSpacing = new int[frameBufferWidth];
+                }
+
+                currentWidth = 0;
+                while (currentWidth < frameBufferWidth) {
+                    if (rowCounter == 0) {
+                        b = random.nextBoolean();
+                        color = b ? 255 : 0;
+
+                        if (maxColumnSpacing <= frameBufferWidth - currentWidth) {
+                            columnSpacing = random.nextInt(maxColumnSpacing - minColumnSpacing + 1) + minColumnSpacing;
+                        } else if (maxColumnSpacing >= frameBufferWidth - currentWidth &&
+                                   minColumnSpacing <= frameBufferWidth - currentWidth) {
+                            columnSpacing = random.nextInt(frameBufferWidth - currentWidth - minColumnSpacing + 1) + minColumnSpacing;
+                        } else {
+                            columnSpacing = frameBufferWidth - currentWidth;
+                        }
+
+                        lastRowColors[currentWidth] = color;
+                        lastRowColumnSpacing[currentWidth] = columnSpacing;
                     } else {
-                        columnSpacing = client.getWindow().getFramebufferWidth() - width;
+                        color = lastRowColors[currentWidth];
+                        columnSpacing = lastRowColumnSpacing[currentWidth];
                     }
 
-                    lastRowColors[width] = color;
-                    lastRowColumnSpacing[width] = columnSpacing;
-                } else {
-                    color = lastRowColors[width];
-                    columnSpacing = lastRowColumnSpacing[width];
+                    for (int rowSectionWidth = currentWidth; rowSectionWidth < currentWidth + columnSpacing; ++rowSectionWidth) {
+                        buffer.putFloat(elementOffset, (float) rowSectionWidth);
+                        buffer.putFloat(elementOffset + 4, (float) currentHeight);
+                        buffer.putFloat(elementOffset + 8, -90.0f);
+                        elementOffset += 12;
+
+                        buffer.put(elementOffset, (byte) color);
+                        buffer.put(elementOffset + 1, (byte) color);
+                        buffer.put(elementOffset + 2, (byte) color);
+                        buffer.put(elementOffset + 3, (byte) 255);
+                        elementOffset += 4;
+                        nextCount.incrementAndGet();
+                    }
+
+                    currentWidth += columnSpacing;
                 }
 
-                for (int rowSectionWidth = width; rowSectionWidth < width + columnSpacing; ++rowSectionWidth) {
-                    bufferBuilder.vertex(rowSectionWidth, height, -90.0D).color(color, color, color, 255).next();
-//                    prevBufferBuilder.vertex(rowSectionWidth, height, -90.0D).color(color, color, color, 255).next();
-//                    byteBuffer.putFloat(0 + offset, (float) rowSectionWidth);
-//                    byteBuffer.putFloat(4 + offset, (float) height);
-//                    byteBuffer.putFloat(8 + offset, -90.0f);
-//                    offset += 4;
-//
-//                    byteBuffer.put(0 + offset, (byte) color);
-//                    byteBuffer.put(1 + offset, (byte) color);
-//                    byteBuffer.put(2 + offset, (byte) color);
-//                    byteBuffer.put(3 + offset, (byte) 255);
-//                    offset += 1;
-//                    ++count;
-                }
+                ++rowCounter;
+            }
+        }
+    }
 
-                width += columnSpacing;
+    public static void render(int minRowSpacing, int maxRowSpacing, int minColumnSpacing, int maxColumnSpacing, float tickDelta) {
+        int bufferSize = client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16;
+
+        if (tickDelta < prevTickDelta && !staticBufferStuffer.isAlive()) {
+            if (prevByteBuffer == null || prevByteBuffer.capacity() != bufferSize) {
+                prevByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
             }
 
-            ++rowCounter;
+            if (nextByteBuffer == null || nextByteBuffer.capacity() != bufferSize) {
+                nextByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
+            } else {
+                prevByteBuffer.put(nextByteBuffer);
+                prevCount = nextCount.get();
+            }
+
+            staticBufferStuffer = new StaticBufferStuffer(nextByteBuffer, minRowSpacing, maxRowSpacing, minColumnSpacing, maxColumnSpacing);
+            staticBufferStuffer.start();
         }
 
-        // Rendering
-        bufferBuilder.end();
-//        BufferRenderer.draw(bufferBuilder);
-//        draw(bufferBuilder.popData().getSecond(), 0, VertexFormats.POSITION_COLOR, count);
-        Pair<BufferBuilder.DrawArrayParameters, ByteBuffer> pair = bufferBuilder.popData();
-        BufferBuilder.DrawArrayParameters drawArrayParameters = (BufferBuilder.DrawArrayParameters)pair.getFirst();
-        draw((ByteBuffer)pair.getSecond(), drawArrayParameters.getMode(), drawArrayParameters.getVertexFormat(), drawArrayParameters.getCount());
-        VertexFormat m = VertexFormats.POSITION_COLOR;
-//        System.out.println("Count: " + count);
-//        System.out.println("Capacity: " + byteBuffer.capacity());
-//        draw(byteBuffer, 0, VertexFormats.POSITION_COLOR, count);
-//        prevByteBuffer = byteBuffer.duplicate();
-        prevByteBuffer = pair.getSecond();
-//        prevBufferBuilder = bufferBuilder;
-        redrawPrevFrame = true;
+        if (prevByteBuffer != null && prevByteBuffer.capacity() == bufferSize) {
+            preRenderingSetup();
+            draw(prevByteBuffer, 0, VertexFormats.POSITION_COLOR, prevCount);
+            postRenderingReset();
+        }
 
-        // Post-rendering resetting
-        RenderSystem.depthMask(true);
-        RenderSystem.enableDepthTest();
-        RenderSystem.enableAlphaTest();
-        RenderSystem.color4f(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.matrixMode(5889);
-        RenderSystem.loadIdentity();
-        RenderSystem.ortho(0.0D, (double) client.getWindow().getFramebufferWidth() / client.getWindow().getScaleFactor(), (double) client.getWindow().getFramebufferHeight() / client.getWindow().getScaleFactor(), 0.0D, 1000.0D, 3000.0D);
-        RenderSystem.matrixMode(5888);
-
-//        runningDelta += System.currentTimeMillis() / 1000f;
+        prevTickDelta = tickDelta;
     }
 
     private static void draw(ByteBuffer buffer, int mode, VertexFormat vertexFormat, int count) {
@@ -205,5 +160,28 @@ public class StaticRenderer {
             GlStateManager.drawArrays(mode, 0, count);
             vertexFormat.endDrawing();
         }
+    }
+
+    private static void preRenderingSetup() {
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.color4f(1.0F, 1.0F, 1.0F, 1.0F);
+        RenderSystem.disableAlphaTest();
+        RenderSystem.matrixMode(5889);
+        RenderSystem.loadIdentity();
+        RenderSystem.ortho(0.0D, client.getWindow().getFramebufferWidth(), client.getWindow().getFramebufferHeight(), 0.0D, 1000.0D, 3000.0D);
+        RenderSystem.matrixMode(5888);
+    }
+
+    private static void postRenderingReset() {
+        RenderSystem.depthMask(true);
+        RenderSystem.enableDepthTest();
+        RenderSystem.enableAlphaTest();
+        RenderSystem.color4f(1.0F, 1.0F, 1.0F, 1.0F);
+        RenderSystem.matrixMode(5889);
+        RenderSystem.loadIdentity();
+        RenderSystem.ortho(0.0D, (double) client.getWindow().getFramebufferWidth() / client.getWindow().getScaleFactor(), (double) client.getWindow().getFramebufferHeight() / client.getWindow().getScaleFactor(), 0.0D, 1000.0D, 3000.0D);
+        RenderSystem.matrixMode(5888);
     }
 }
