@@ -1,6 +1,5 @@
 package bluevista.fpvracing.mixin;
 
-import bluevista.fpvracing.client.ClientTick;
 import bluevista.fpvracing.client.renderers.StaticRenderer;
 import bluevista.fpvracing.server.entities.DroneEntity;
 import bluevista.fpvracing.server.items.GogglesItem;
@@ -32,11 +31,11 @@ public class InGameHudMixin {
             )
     )
     public void render(MatrixStack matrices, float tickDelta, CallbackInfo info) {
-//        if (client.options.getPerspective().isFirstPerson() && client.player.inventory.getArmorStack(3).getItem() instanceof GogglesItem) {
-//            if (GogglesItem.isOn(client.player) && !(client.getCameraEntity() instanceof DroneEntity)) {
-//                StaticRenderer.render(10, 20, 10, 20, tickDelta);
-//            }
-//        }
+        if (client.options.getPerspective().isFirstPerson() && client.player.inventory.getArmorStack(3).getItem() instanceof GogglesItem) {
+            if (GogglesItem.isOn(client.player) && !(client.getCameraEntity() instanceof DroneEntity)) {
+                StaticRenderer.render(10, 20, 10, 20, tickDelta);
+            }
+        }
     }
 
     /**
