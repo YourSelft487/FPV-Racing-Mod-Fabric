@@ -109,7 +109,6 @@ public class ServerTick {
 
 
             ShouldRenderPlayerS2C.send(player, true);
-            GogglesItem.setOn(player.inventory.armor.get(3), false);
             player.setNoGravity(false);
             player.setCameraEntity(player);
         }
