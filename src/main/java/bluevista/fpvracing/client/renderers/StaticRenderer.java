@@ -10,48 +10,64 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 public class StaticRenderer extends Thread {
-
     private final static MinecraftClient client = ClientInitializer.client;
     private static float prevTickDelta;
 
-    private static StaticBufferStuffer staticBufferStuffer = new StaticBufferStuffer();
+    private static final ExecutorService executorService = Executors.newFixedThreadPool(2);
+    private static Future<?> copier;
+    private static Future<?> stuffer;
 
-    private static ByteBuffer prevByteBuffer;
-    private static int prevCount;
-
+    // volatile disables caching values; forces direct memory referencing
+    // because these values are modified on two threads, this is desired
+    // as two threads could potentially modify the values concurrently
+    // resulting in the two threads caching two different values
+    private volatile static ByteBuffer prevByteBuffer;
     private volatile static ByteBuffer nextByteBuffer;
-    private volatile static AtomicInteger nextCount = new AtomicInteger();
+    private volatile static int prevCount;
+    private volatile static int nextCount;
 
-    private static class StaticBufferStuffer extends Thread {
+    private static class StaticBufferCopier implements Runnable {
+        @Override
+        public void run() {
+            int bufferSize = client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16;
 
-        private static ByteBuffer buffer;
+            if (prevByteBuffer == null || prevByteBuffer.capacity() != bufferSize) {
+                prevByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
+            }
 
-        private static int minRowSpacing,
-                           maxRowSpacing,
-                           minColumnSpacing,
-                           maxColumnSpacing;
-
-        StaticBufferStuffer() {
-            super();
+            if (nextByteBuffer == null || nextByteBuffer.capacity() != bufferSize) {
+                nextByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
+            } else {
+                prevByteBuffer.put(nextByteBuffer);
+                prevCount = nextCount;
+            }
         }
+    }
+
+    private static class StaticBufferStuffer implements Runnable {
+        private final ByteBuffer buffer;
+
+        private final int minRowSpacing,
+                          maxRowSpacing,
+                          minColumnSpacing,
+                          maxColumnSpacing;
 
         StaticBufferStuffer(ByteBuffer buffer, int minRowSpacing, int maxRowSpacing, int minColumnSpacing, int maxColumnSpacing) {
-            super();
-            StaticBufferStuffer.buffer = buffer;
+            this.buffer = buffer;
 
-            StaticBufferStuffer.minRowSpacing = minRowSpacing;
-            StaticBufferStuffer.maxRowSpacing = maxRowSpacing;
-            StaticBufferStuffer.minColumnSpacing = minColumnSpacing;
-            StaticBufferStuffer.maxColumnSpacing = maxColumnSpacing;
+            this.minRowSpacing = minRowSpacing;
+            this.maxRowSpacing = maxRowSpacing;
+            this.minColumnSpacing = minColumnSpacing;
+            this.maxColumnSpacing = maxColumnSpacing;
         }
 
         @Override
         public void run() {
-            super.run();
-
             Random random = new Random();
 
             boolean b;
@@ -69,7 +85,7 @@ public class StaticRenderer extends Thread {
             int[] lastRowColors = new int[frameBufferWidth],
                   lastRowColumnSpacing = new int[frameBufferWidth];
 
-            nextCount.set(0);
+            nextCount = 0;
             buffer.clear();
             for (int currentHeight = 0; currentHeight < frameBufferHeight; ++currentHeight) {
                 if (rowCounter == 0 || rowCounter >= rowSpacing) {
@@ -113,7 +129,7 @@ public class StaticRenderer extends Thread {
                         buffer.put(elementOffset + 2, (byte) color);
                         buffer.put(elementOffset + 3, (byte) 255);
                         elementOffset += 4;
-                        nextCount.incrementAndGet();
+                        ++nextCount;
                     }
 
                     currentWidth += columnSpacing;
@@ -127,25 +143,28 @@ public class StaticRenderer extends Thread {
     public static void render(int minRowSpacing, int maxRowSpacing, int minColumnSpacing, int maxColumnSpacing, float tickDelta) {
         int bufferSize = client.getWindow().getFramebufferHeight() * client.getWindow().getFramebufferWidth() * 16;
 
-        if (tickDelta < prevTickDelta && !staticBufferStuffer.isAlive()) {
-            if (prevByteBuffer == null || prevByteBuffer.capacity() != bufferSize) {
-                prevByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
-            }
-
-            if (nextByteBuffer == null || nextByteBuffer.capacity() != bufferSize) {
-                nextByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
-            } else {
-                prevByteBuffer.put(nextByteBuffer);
-                prevCount = nextCount.get();
-            }
-
-            staticBufferStuffer = new StaticBufferStuffer(nextByteBuffer, minRowSpacing, maxRowSpacing, minColumnSpacing, maxColumnSpacing);
-            staticBufferStuffer.start();
+        if (stuffer == null) {
+            nextByteBuffer = GlAllocationUtils.allocateByteBuffer(bufferSize);
+            stuffer = executorService.submit(new StaticBufferStuffer(nextByteBuffer, minRowSpacing, maxRowSpacing, minColumnSpacing, maxColumnSpacing));
         }
 
-        if (prevByteBuffer != null && prevByteBuffer.capacity() == bufferSize) {
+        if (tickDelta < prevTickDelta && stuffer.isDone()) {
+            if (copier == null || copier.isDone()) {
+                copier = executorService.submit(new StaticBufferCopier(), prevByteBuffer);
+            }
+        }
+
+        if (prevByteBuffer != null && prevByteBuffer.capacity() == bufferSize && copier.isDone()) {
+            if (stuffer.isDone() && prevByteBuffer.equals(nextByteBuffer)) {
+                stuffer = executorService.submit(new StaticBufferStuffer(nextByteBuffer, minRowSpacing, maxRowSpacing, minColumnSpacing, maxColumnSpacing));
+            }
+
             preRenderingSetup();
             draw(prevByteBuffer, 0, VertexFormats.POSITION_COLOR, prevCount);
+            postRenderingReset();
+        } else if (nextByteBuffer != null && nextByteBuffer.capacity() == bufferSize) {
+            preRenderingSetup();
+            draw(nextByteBuffer, 0, VertexFormats.POSITION_COLOR, nextCount);
             postRenderingReset();
         }
 
